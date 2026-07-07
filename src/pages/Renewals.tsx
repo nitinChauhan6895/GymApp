@@ -14,6 +14,7 @@ const TABS = [
   { key: 'today', label: 'Today' },
   { key: '3days', label: '3 Days' },
   { key: 'week', label: '7 Days' },
+  { key: 'month', label: '1 Month' },
   { key: 'expired', label: 'Expired' },
 ] as const;
 
@@ -39,6 +40,7 @@ export default function Renewals() {
     if (tab === 'today') filtered = withMs.filter((v) => v.daysLeft === 0);
     else if (tab === '3days') filtered = withMs.filter((v) => v.daysLeft! >= 0 && v.daysLeft! <= 3);
     else if (tab === 'week') filtered = withMs.filter((v) => v.daysLeft! >= 0 && v.daysLeft! <= 7);
+    else if (tab === 'month') filtered = withMs.filter((v) => v.daysLeft! >= 0 && v.daysLeft! <= 30);
     else filtered = withMs.filter((v) => v.daysLeft! < 0);
     return filtered.sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0) || a.member.fullName.localeCompare(b.member.fullName));
   }, [views, tab]);

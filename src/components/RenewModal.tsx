@@ -6,6 +6,7 @@ import type { Member, Membership, PaymentMode } from '../types';
 import { PAYMENT_MODES } from '../types';
 import { addMonths, formatDate, money, todayISO } from '../utils';
 import Modal from './Modal';
+import ProgramSelect from './ProgramSelect';
 
 export default function RenewModal({
   member,
@@ -19,17 +20,20 @@ export default function RenewModal({
   const packages = useLiveQuery(() => db.packages.filter((p) => p.active).toArray(), []) || [];
   const employees = useLiveQuery(() => db.employees.toArray(), []) || [];
   const [packageId, setPackageId] = useState<number | ''>('');
-  const [discount, setDiscount] = useState('');
+  const [finalAmount, setFinalAmount] = useState('');
+  const [touchedFinal, setTouchedFinal] = useState(false);
+  const [program, setProgram] = useState(current?.specialProgram || '');
   const [amountPaid, setAmountPaid] = useState('');
+  const [touchedAmount, setTouchedAmount] = useState(false);
   const [mode, setMode] = useState<PaymentMode>('Cash');
   const [reference, setReference] = useState('');
   const [recordedBy, setRecordedBy] = useState('');
   const [saving, setSaving] = useState(false);
-  const [touchedAmount, setTouchedAmount] = useState(false);
 
   const pkg = packages.find((p) => p.id === packageId);
-  const disc = Number(discount) || 0;
-  const finalPrice = pkg ? Math.max(0, pkg.price - disc) : 0;
+  const effectiveFinal = touchedFinal ? Number(finalAmount) || 0 : pkg?.price ?? 0;
+  const discount = pkg ? Math.max(0, pkg.price - effectiveFinal) : 0;
+  const effectiveAmount = touchedAmount ? Number(amountPaid) || 0 : effectiveFinal;
 
   const newDates = useMemo(() => {
     if (!pkg) return null;
@@ -37,15 +41,14 @@ export default function RenewModal({
     return { start: base, end: addMonths(base, pkg.durationMonths) };
   }, [pkg, current]);
 
-  const effectiveAmount = touchedAmount ? Number(amountPaid) || 0 : finalPrice;
-
   async function save() {
     if (!pkg || saving) return;
     setSaving(true);
     await renewMembership({
       memberId: member.id!,
       pkg,
-      discount: disc,
+      finalAmount: effectiveFinal,
+      specialProgram: program.trim() || undefined,
       amountPaid: effectiveAmount,
       paymentMode: mode,
       reference: reference || undefined,
@@ -58,7 +61,14 @@ export default function RenewModal({
     <Modal title={`Renew — ${member.fullName}`} onClose={onClose}>
       <label className="field">
         <span>Package</span>
-        <select value={packageId} onChange={(e) => setPackageId(Number(e.target.value) || '')}>
+        <select
+          value={packageId}
+          onChange={(e) => {
+            setPackageId(Number(e.target.value) || '');
+            setTouchedFinal(false);
+            setTouchedAmount(false);
+          }}
+        >
           <option value="">Choose package…</option>
           {packages.map((p) => (
             <option key={p.id} value={p.id}>
@@ -67,10 +77,20 @@ export default function RenewModal({
           ))}
         </select>
       </label>
+      <ProgramSelect value={program} onChange={setProgram} />
       <div className="field-row">
         <label className="field">
-          <span>Discount (₹)</span>
-          <input type="number" min="0" inputMode="numeric" value={discount} onChange={(e) => setDiscount(e.target.value)} />
+          <span>Final Amount (₹)</span>
+          <input
+            type="number"
+            min="0"
+            inputMode="numeric"
+            value={touchedFinal ? finalAmount : pkg ? String(pkg.price) : ''}
+            onChange={(e) => {
+              setTouchedFinal(true);
+              setFinalAmount(e.target.value);
+            }}
+          />
         </label>
         <label className="field">
           <span>Amount Paid (₹)</span>
@@ -78,7 +98,7 @@ export default function RenewModal({
             type="number"
             min="0"
             inputMode="numeric"
-            value={touchedAmount ? amountPaid : finalPrice || ''}
+            value={touchedAmount ? amountPaid : pkg ? String(effectiveFinal) : ''}
             onChange={(e) => {
               setTouchedAmount(true);
               setAmountPaid(e.target.value);
@@ -120,13 +140,17 @@ export default function RenewModal({
             <strong>{formatDate(newDates.end)}</strong>
           </div>
           <div>
-            <span>Price after discount</span>
-            <strong>{money(finalPrice)}</strong>
+            <span>Discount (auto)</span>
+            <strong>{money(discount)}</strong>
           </div>
-          {effectiveAmount < finalPrice && (
+          <div>
+            <span>Final amount</span>
+            <strong>{money(effectiveFinal)}</strong>
+          </div>
+          {effectiveAmount < effectiveFinal && (
             <div>
               <span>Balance due</span>
-              <strong className="due">{money(finalPrice - effectiveAmount)}</strong>
+              <strong className="due">{money(effectiveFinal - effectiveAmount)}</strong>
             </div>
           )}
         </div>

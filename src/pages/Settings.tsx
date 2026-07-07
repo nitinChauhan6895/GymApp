@@ -158,6 +158,13 @@ export default function Settings() {
           <strong>📥 Import Members (Excel)</strong>
           <span className="muted">→</span>
         </Link>
+        <Link to="/join" className="list-row list-row-btn">
+          <div>
+            <strong>📝 Self-Registration Form</strong>
+            <span className="muted block">Open and hand the device to a new member</span>
+          </div>
+          <span className="muted">→</span>
+        </Link>
         <Link to="/reports" className="list-row list-row-btn">
           <strong>📊 Reports</strong>
           <span className="muted">→</span>

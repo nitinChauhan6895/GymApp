@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import BottomNav from './components/BottomNav';
 import Dashboard from './pages/Dashboard';
@@ -12,6 +12,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Packages from './pages/Packages';
 import ImportMembers from './pages/ImportMembers';
+import Join from './pages/Join';
 import Notifications from './pages/Notifications';
 import { db } from './db';
 import { buildMemberViews } from './data';
@@ -47,11 +48,14 @@ function useMorningSummary() {
 
 export default function App() {
   useMorningSummary();
+  // kiosk mode: no bottom nav, so a self-registering member can't browse data
+  const isKiosk = useLocation().pathname === '/join';
   return (
     <div className="app">
       <main className="app-main">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/join" element={<Join />} />
           <Route path="/members" element={<Members />} />
           <Route path="/members/new" element={<MemberForm />} />
           <Route path="/members/:id" element={<MemberProfile />} />
@@ -66,7 +70,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <BottomNav />
+      {!isKiosk && <BottomNav />}
     </div>
   );
 }

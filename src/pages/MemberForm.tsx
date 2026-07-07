@@ -7,7 +7,9 @@ import type { Gender, PaymentMode } from '../types';
 import { PAYMENT_MODES } from '../types';
 import { fileToDataUrl, money, normPhone, todayISO } from '../utils';
 import Avatar from '../components/Avatar';
+import ConditionsPicker from '../components/ConditionsPicker';
 import PageHeader from '../components/PageHeader';
+import ProgramSelect from '../components/ProgramSelect';
 
 export default function MemberForm() {
   const { id } = useParams();
@@ -23,10 +25,13 @@ export default function MemberForm() {
   const [address, setAddress] = useState('');
   const [emergencyContact, setEmergencyContact] = useState('');
   const [photo, setPhoto] = useState<string | undefined>();
+  const [conditions, setConditions] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   // membership (new member only)
   const [packageId, setPackageId] = useState<number | ''>('');
-  const [discount, setDiscount] = useState('');
+  const [finalAmount, setFinalAmount] = useState('');
+  const [touchedFinal, setTouchedFinal] = useState(false);
+  const [program, setProgram] = useState('');
   const [joiningDate, setJoiningDate] = useState(todayISO());
   const [amountPaid, setAmountPaid] = useState('');
   const [touchedAmount, setTouchedAmount] = useState(false);
@@ -46,13 +51,15 @@ export default function MemberForm() {
       setAddress(m.address || '');
       setEmergencyContact(m.emergencyContact || '');
       setPhoto(m.photo);
+      setConditions(m.conditions || []);
       setNotes(m.notes || '');
     });
   }, [editId]);
 
   const pkg = packages.find((p) => p.id === packageId);
-  const finalPrice = pkg ? Math.max(0, pkg.price - (Number(discount) || 0)) : 0;
-  const effectiveAmount = touchedAmount ? amountPaid : pkg ? String(finalPrice) : '';
+  const effectiveFinal = touchedFinal ? Number(finalAmount) || 0 : pkg?.price ?? 0;
+  const autoDiscount = pkg ? Math.max(0, pkg.price - effectiveFinal) : 0;
+  const effectiveAmount = touchedAmount ? amountPaid : pkg ? String(effectiveFinal) : '';
 
   async function onPhoto(file: File | undefined) {
     if (!file) return;
@@ -87,6 +94,7 @@ export default function MemberForm() {
       address: address.trim() || undefined,
       emergencyContact: emergencyContact.trim() || undefined,
       photo,
+      conditions,
       notes: notes.trim() || undefined,
     };
     if (editId) {
@@ -97,7 +105,8 @@ export default function MemberForm() {
       const newId = await createMember({
         member: memberFields,
         packageId: packageId || undefined,
-        discount: Number(discount) || 0,
+        finalAmount: packageId ? effectiveFinal : undefined,
+        specialProgram: program.trim() || undefined,
         joiningDate,
         amountPaid: Number(effectiveAmount) || 0,
         paymentMode,
@@ -157,6 +166,10 @@ export default function MemberForm() {
           <input type="tel" inputMode="tel" value={emergencyContact} onChange={(e) => setEmergencyContact(e.target.value)} />
         </label>
         <label className="field">
+          <span>Health Conditions</span>
+        </label>
+        <ConditionsPicker value={conditions} onChange={setConditions} />
+        <label className="field">
           <span>Notes</span>
           <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </label>
@@ -183,10 +196,20 @@ export default function MemberForm() {
             </div>
             {pkg && (
               <>
+                <ProgramSelect value={program} onChange={setProgram} />
                 <div className="field-row">
                   <label className="field">
-                    <span>Discount (₹)</span>
-                    <input type="number" min="0" inputMode="numeric" value={discount} onChange={(e) => setDiscount(e.target.value)} />
+                    <span>Final Amount (₹)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={touchedFinal ? finalAmount : String(pkg.price)}
+                      onChange={(e) => {
+                        setTouchedFinal(true);
+                        setFinalAmount(e.target.value);
+                      }}
+                    />
                   </label>
                   <label className="field">
                     <span>Amount Paid (₹)</span>
@@ -211,7 +234,8 @@ export default function MemberForm() {
                   </select>
                 </label>
                 <div className="hint">
-                  Price after discount: <strong>{money(finalPrice)}</strong>
+                  Package price {money(pkg.price)} − final amount {money(effectiveFinal)} ={' '}
+                  <strong>discount {money(autoDiscount)}</strong>
                 </div>
               </>
             )}

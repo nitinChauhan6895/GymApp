@@ -6,6 +6,34 @@ export const PAYMENT_MODES: PaymentMode[] = ['Cash', 'UPI', 'Card', 'Bank Transf
 
 export type MemberStatus = 'active' | 'expiring' | 'expired' | 'none';
 
+/** Predefined health conditions; members can also have custom ones. */
+export const CONDITIONS = [
+  'Heart Disease',
+  'High Blood Pressure',
+  'Diabetes',
+  'Asthma / Breathing Issues',
+  'Knee / Joint Pain',
+  'Arthritis',
+  'Back Pain / Spine Issues',
+  'Obesity',
+  'Thyroid',
+  'PCOS / Hormonal',
+] as const;
+
+/** Predefined special programs; memberships can also have custom ones. */
+export const SPECIAL_PROGRAMS = [
+  'Cardiac Fitness',
+  'Diabetes Management',
+  'Joint Care / Mobility',
+  'Back Care',
+  'Weight Loss',
+  'Muscle Building',
+  'Senior Fitness',
+  'Postnatal Fitness',
+  'Sports Conditioning',
+  'General Rehab',
+] as const;
+
 export interface Member {
   id?: number;
   fullName: string;
@@ -16,6 +44,7 @@ export interface Member {
   address?: string;
   emergencyContact?: string;
   photo?: string; // data URL
+  conditions?: string[]; // health conditions (predefined + custom)
   notes?: string;
   createdAt: string; // ISO datetime
   deletedAt?: string | null; // soft delete
@@ -40,6 +69,7 @@ export interface Membership {
   endDate: string; // ISO date
   discount: number;
   finalPrice: number;
+  specialProgram?: string; // e.g. disease-specific program
   renewedFrom?: number | null; // previous membership id
   createdAt: string;
 }
