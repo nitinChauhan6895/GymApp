@@ -58,8 +58,16 @@ npm run build    # type-check + production build (dist/)
 npm run preview  # serve the production build
 ```
 
-Deploy the `dist/` folder to any static host (GitHub Pages, Netlify, Vercel, …).
-Because routing is hash-based and assets are relative, no server configuration is needed.
+## Deployment
+
+The repo is configured for **Vercel** (`vercel.json`: Vite framework, `dist/` output,
+long-cache assets, never-cached service worker). Import the GitHub repo at
+[vercel.com/new](https://vercel.com/new) and every push to `main` deploys automatically,
+with preview deployments for pull requests. Phase 2 server pieces (API keys, Supabase)
+can live in Vercel serverless functions and environment variables alongside the app.
+
+Because routing is hash-based and assets are relative, the build also works on any other
+static host with no server configuration.
 
 ## Data Model
 
