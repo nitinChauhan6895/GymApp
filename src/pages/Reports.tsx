@@ -17,6 +17,27 @@ export default function Reports() {
 
   const month = todayISO().slice(0, 7);
 
+  // members per health condition and per special program (current membership)
+  const programStats = useMemo(() => {
+    if (!data) return null;
+    const conditions = new Map<string, { total: number; active: number }>();
+    const programs = new Map<string, { total: number; active: number }>();
+    const bump = (map: Map<string, { total: number; active: number }>, key: string, isActive: boolean) => {
+      const e = map.get(key) || { total: 0, active: 0 };
+      e.total++;
+      if (isActive) e.active++;
+      map.set(key, e);
+    };
+    for (const v of data.views) {
+      const isActive = v.status === 'active' || v.status === 'expiring';
+      for (const c of v.member.conditions || []) bump(conditions, c, isActive);
+      if (v.membership?.specialProgram) bump(programs, v.membership.specialProgram, isActive);
+    }
+    const sorted = (m: Map<string, { total: number; active: number }>) =>
+      [...m.entries()].sort((a, b) => b[1].total - a[1].total);
+    return { conditions: sorted(conditions), programs: sorted(programs) };
+  }, [data]);
+
   const stats = useMemo(() => {
     if (!data) return null;
     const { views, memberships, payments } = data;
@@ -76,6 +97,23 @@ export default function Reports() {
       Renewal: m.renewedFrom != null ? 'Yes' : 'No',
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(membershipRows), 'Memberships');
+    if (programStats) {
+      const rows = [
+        ...programStats.programs.map(([name, c]) => ({
+          Type: 'Program',
+          Name: name,
+          Members: c.total,
+          Active: c.active,
+        })),
+        ...programStats.conditions.map(([name, c]) => ({
+          Type: 'Condition',
+          Name: name,
+          Members: c.total,
+          Active: c.active,
+        })),
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Programs & Conditions');
+    }
     XLSX.writeFile(wb, `gym-report-${todayISO()}.xlsx`);
   }
 
@@ -143,8 +181,39 @@ export default function Reports() {
         ))}
       </div>
 
+      <h2 className="section-title">Members by Special Program</h2>
+      <div className="card">
+        {(!programStats || programStats.programs.length === 0) && (
+          <p className="muted center pad">No special programs assigned yet.</p>
+        )}
+        {programStats?.programs.map(([name, c]) => (
+          <div key={name} className="list-row">
+            <strong>{name}</strong>
+            <span>
+              {c.active} active <span className="muted">/ {c.total}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <h2 className="section-title">Members by Health Condition</h2>
+      <div className="card">
+        {(!programStats || programStats.conditions.length === 0) && (
+          <p className="muted center pad">No health conditions tagged yet.</p>
+        )}
+        {programStats?.conditions.map(([name, c]) => (
+          <div key={name} className="list-row">
+            <strong>⚕ {name}</strong>
+            <span>
+              {c.active} active <span className="muted">/ {c.total}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+
       <p className="muted center count-note no-print">
-        Excel export includes full member, payment and membership sheets. PDF uses your browser's print dialog.
+        Excel export includes member, payment, membership and program/condition sheets. PDF uses your browser's
+        print dialog.
       </p>
     </div>
   );
