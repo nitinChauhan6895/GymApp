@@ -16,12 +16,25 @@ export default function MemberCard({ view }: { view: MemberView }) {
         </div>
         <div className="member-card-sub">
           <span>📞 {member.phone}</span>
-          {membership && <span>{membership.packageName}</span>}
+          {membership && (
+            <span>
+              {membership.packageName}
+              {membership.specialProgram ? ` · ${membership.specialProgram}` : ''}
+            </span>
+          )}
         </div>
         <div className="member-card-sub">
           {membership ? <span>Expires {formatDate(membership.endDate)}</span> : <span>No membership</span>}
           {outstanding > 0 && <span className="due">Due {money(outstanding)}</span>}
         </div>
+        {(member.conditions || []).length > 0 && (
+          <div className="member-card-sub">
+            <span className="tag-inline">
+              ⚕ {member.conditions!.slice(0, 2).join(', ')}
+              {member.conditions!.length > 2 ? ` +${member.conditions!.length - 2}` : ''}
+            </span>
+          </div>
+        )}
       </div>
     </Link>
   );

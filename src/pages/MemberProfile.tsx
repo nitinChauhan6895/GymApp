@@ -5,6 +5,7 @@ import { db } from '../db';
 import { outstandingOf, softDeleteMember } from '../data';
 import { daysUntil, formatDate, money, statusOf, telLink, whatsappLink } from '../utils';
 import Avatar from '../components/Avatar';
+import ExtendModal from '../components/ExtendModal';
 import PageHeader from '../components/PageHeader';
 import PaymentModal from '../components/PaymentModal';
 import RenewModal from '../components/RenewModal';
@@ -16,6 +17,7 @@ export default function MemberProfile() {
   const navigate = useNavigate();
   const [showRenew, setShowRenew] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+  const [showExtend, setShowExtend] = useState(false);
 
   const data = useLiveQuery(async () => {
     const [member, memberships, payments, settings] = await Promise.all([
@@ -106,6 +108,12 @@ export default function MemberProfile() {
               <span>Plan</span>
               <strong>{current.packageName}</strong>
             </div>
+            {current.specialProgram && (
+              <div>
+                <span>Program</span>
+                <strong>{current.specialProgram}</strong>
+              </div>
+            )}
             <div>
               <span>Start</span>
               <strong>{formatDate(current.startDate)}</strong>
@@ -125,6 +133,11 @@ export default function MemberProfile() {
             <div>
               <span>Outstanding</span>
               <strong className={outstanding > 0 ? 'due' : ''}>{money(outstanding)}</strong>
+            </div>
+            <div className="kv-wide">
+              <button className="btn btn-sm" onClick={() => setShowExtend(true)}>
+                ➕ Add Extra Days
+              </button>
             </div>
           </div>
         ) : (
@@ -158,6 +171,18 @@ export default function MemberProfile() {
           <span>Emergency Contact</span>
           <strong>{member.emergencyContact || '—'}</strong>
         </div>
+        {(member.conditions || []).length > 0 && (
+          <div className="kv-wide">
+            <span>Health Conditions</span>
+            <div className="tag-row">
+              {member.conditions!.map((c) => (
+                <span key={c} className="tag">
+                  ⚕ {c}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {member.notes && (
           <div className="kv-wide">
             <span>Notes</span>
@@ -191,6 +216,7 @@ export default function MemberProfile() {
           <div key={m.id} className="list-row">
             <div>
               <strong>{m.packageName}</strong>
+              {m.specialProgram && <span className="muted"> · {m.specialProgram}</span>}
               {m.renewedFrom != null && <span className="muted"> · renewal</span>}
             </div>
             <span className="muted">
@@ -201,6 +227,9 @@ export default function MemberProfile() {
       </div>
 
       {showRenew && <RenewModal member={member} current={current} onClose={() => setShowRenew(false)} />}
+      {showExtend && current && (
+        <ExtendModal member={member} membership={current} onClose={() => setShowExtend(false)} />
+      )}
       {showPayment && (
         <PaymentModal member={member} membership={current} outstanding={outstanding} onClose={() => setShowPayment(false)} />
       )}

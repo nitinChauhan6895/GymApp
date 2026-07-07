@@ -7,7 +7,7 @@ import type {
   Payment,
   PaymentMode,
 } from './types';
-import { addMonths, daysUntil, nowISO, statusOf, todayISO } from './utils';
+import { addDays, addMonths, daysUntil, nowISO, statusOf, todayISO } from './utils';
 
 export async function logActivity(type: 'member' | 'renewal' | 'payment' | 'import' | 'other', message: string) {
   await db.activities.add({ type, message, at: nowISO() });
@@ -76,7 +76,8 @@ export function buildMemberViews(
 export interface NewMemberInput {
   member: Omit<Member, 'id' | 'createdAt' | 'deletedAt'>;
   packageId?: number;
-  discount?: number;
+  finalAmount?: number; // final membership amount; discount derived from package price
+  specialProgram?: string;
   joiningDate?: string;
   amountPaid?: number;
   paymentMode?: PaymentMode;
@@ -94,7 +95,8 @@ export async function createMember(input: NewMemberInput): Promise<number> {
       const pkg = await db.packages.get(input.packageId);
       if (pkg) {
         const start = input.joiningDate || todayISO();
-        const discount = input.discount || 0;
+        const finalPrice = input.finalAmount ?? pkg.price;
+        const discount = Math.max(0, pkg.price - finalPrice);
         const membershipId = await db.memberships.add({
           memberId,
           packageId: pkg.id!,
@@ -103,7 +105,8 @@ export async function createMember(input: NewMemberInput): Promise<number> {
           startDate: start,
           endDate: addMonths(start, pkg.durationMonths),
           discount,
-          finalPrice: Math.max(0, pkg.price - discount),
+          finalPrice,
+          specialProgram: input.specialProgram,
           renewedFrom: null,
           createdAt: nowISO(),
         });
@@ -133,7 +136,8 @@ export async function createMember(input: NewMemberInput): Promise<number> {
 export interface RenewInput {
   memberId: number;
   pkg: Package;
-  discount: number;
+  finalAmount: number; // final membership amount; discount derived from package price
+  specialProgram?: string;
   amountPaid: number;
   paymentMode: PaymentMode;
   reference?: string;
@@ -148,6 +152,7 @@ export async function renewMembership(input: RenewInput): Promise<void> {
     const existing = await db.memberships.where('memberId').equals(input.memberId).toArray();
     const current = existing.sort((a, b) => (a.endDate < b.endDate ? 1 : -1))[0] || null;
     const base = current && current.endDate >= todayISO() ? current.endDate : todayISO();
+    const discount = Math.max(0, input.pkg.price - input.finalAmount);
     const membershipId = await db.memberships.add({
       memberId: input.memberId,
       packageId: input.pkg.id!,
@@ -155,8 +160,9 @@ export async function renewMembership(input: RenewInput): Promise<void> {
       durationMonths: input.pkg.durationMonths,
       startDate: base,
       endDate: addMonths(base, input.pkg.durationMonths),
-      discount: input.discount,
-      finalPrice: Math.max(0, input.pkg.price - input.discount),
+      discount,
+      finalPrice: input.finalAmount,
+      specialProgram: input.specialProgram,
       renewedFrom: current?.id ?? null,
       createdAt: nowISO(),
     });
@@ -166,7 +172,7 @@ export async function renewMembership(input: RenewInput): Promise<void> {
         membershipId,
         amount: input.amountPaid,
         mode: input.paymentMode,
-        discount: input.discount,
+        discount,
         reference: input.reference,
         remarks: input.remarks,
         paymentDate: todayISO(),
@@ -211,6 +217,21 @@ export async function recordPayment(input: PaymentInput): Promise<void> {
     await db.activities.add({
       type: 'payment',
       message: `Payment of ₹${input.amount} received from ${member?.fullName || 'member'} (${input.mode})`,
+      at: nowISO(),
+    });
+  });
+}
+
+/** Add complimentary/extra days to a membership's expiry. */
+export async function extendMembership(membershipId: number, days: number, reason?: string): Promise<void> {
+  await db.transaction('rw', [db.memberships, db.members, db.activities], async () => {
+    const ms = await db.memberships.get(membershipId);
+    if (!ms) return;
+    const member = await db.members.get(ms.memberId);
+    await db.memberships.update(membershipId, { endDate: addDays(ms.endDate, days) });
+    await db.activities.add({
+      type: 'renewal',
+      message: `Added ${days} extra day${days === 1 ? '' : 's'} to ${member?.fullName || 'member'}${reason ? ` (${reason})` : ''}`,
       at: nowISO(),
     });
   });

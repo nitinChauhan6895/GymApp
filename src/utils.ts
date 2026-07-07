@@ -32,6 +32,23 @@ export function addMonths(iso: string, months: number): string {
   return fmtISO(d);
 }
 
+export function addDays(iso: string, days: number): string {
+  const d = parseISO(iso);
+  d.setDate(d.getDate() + days);
+  return fmtISO(d);
+}
+
+/** Age in whole years from an ISO date of birth; null if missing/invalid. */
+export function ageOf(dob: string | null | undefined): number | null {
+  if (!dob) return null;
+  const b = parseISO(dob);
+  if (isNaN(b.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) age--;
+  return age >= 0 && age < 130 ? age : null;
+}
+
 /** Whole days from today until the given date. 0 = today, negative = past. */
 export function daysUntil(iso: string): number {
   const target = parseISO(iso).getTime();
