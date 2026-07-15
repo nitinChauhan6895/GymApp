@@ -70,6 +70,7 @@ export default function MemberProfile() {
         <Avatar name={member.fullName} photo={member.photo} size={64} />
         <div className="profile-head-body">
           <h2>{member.fullName}</h2>
+          {member.memberCode && <span className="member-code">ID: {member.memberCode}</span>}
           <StatusBadge status={status} />
         </div>
         <div className="profile-contact">
@@ -129,6 +130,10 @@ export default function MemberProfile() {
             <div>
               <span>Price</span>
               <strong>{money(current.finalPrice)}</strong>
+            </div>
+            <div>
+              <span>Discount Given</span>
+              <strong>{current.discount > 0 ? money(current.discount) : '—'}</strong>
             </div>
             <div>
               <span>Outstanding</span>

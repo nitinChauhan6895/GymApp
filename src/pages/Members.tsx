@@ -75,6 +75,7 @@ export default function Members() {
           return (
             v.member.fullName.toLowerCase().includes(term) ||
             v.member.phone.includes(term) ||
+            (v.member.memberCode || '').toLowerCase().includes(term) ||
             (v.member.email || '').toLowerCase().includes(term)
           );
         }
@@ -95,7 +96,7 @@ export default function Members() {
       />
       <input
         className="search-input"
-        placeholder="Search name, phone, email…"
+        placeholder="Search ID, name, phone, email…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />

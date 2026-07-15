@@ -2,10 +2,28 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { logActivity } from '../data';
-import { addMonths, fmtISO, formatDate, normPhone, nowISO, todayISO } from '../utils';
+import { addMonths, downloadBlob, fmtISO, formatDate, normPhone, nowISO, todayISO } from '../utils';
+import { formatMemberCode, maxMemberCodeNumber } from '../data';
 import PageHeader from '../components/PageHeader';
 
+/** Column order of the standard import template. */
+const TEMPLATE_HEADERS = [
+  'Member ID',
+  'Full Name',
+  'Gender',
+  'Mobile',
+  'Email',
+  'DOB',
+  'Address',
+  'Package',
+  'Start Date',
+  'Expiry Date',
+  'Status',
+  'Amount Paid',
+];
+
 interface ImportRow {
+  memberCode?: string;
   fullName: string;
   phone: string;
   email?: string;
@@ -29,6 +47,14 @@ function findCol(headers: string[], candidates: string[]): number {
     if (idx !== -1) return idx;
   }
   return -1;
+}
+
+/** Member-ID column: match "member id/code/no" or a header that is exactly "id". */
+function findIdCol(headers: string[]): number {
+  const norm = headers.map((h) => (h || '').toString().toLowerCase().replace(/[^a-z]/g, ''));
+  const byName = norm.findIndex((h) => ['memberid', 'membercode', 'memberno', 'regno', 'regdno'].some((c) => h.includes(c)));
+  if (byName !== -1) return byName;
+  return norm.findIndex((h) => h === 'id');
 }
 
 function toISODate(value: unknown): string | undefined {
@@ -76,6 +102,7 @@ export default function ImportMembers() {
       }
       const headers = raw[0].map(String);
       const col = {
+        code: findIdCol(headers),
         name: findCol(headers, ['fullname', 'membername', 'name']),
         phone: findCol(headers, ['phone', 'mobile', 'contact']),
         email: findCol(headers, ['email']),
@@ -112,6 +139,7 @@ export default function ImportMembers() {
           else seenInFile.add(np);
         }
         const row: ImportRow = {
+          memberCode: col.code !== -1 ? String(r[col.code] ?? '').trim().replace(/\.0$/, '') || undefined : undefined,
           fullName,
           phone,
           email: col.email !== -1 ? String(r[col.email] ?? '').trim() || undefined : undefined,
@@ -151,10 +179,15 @@ export default function ImportMembers() {
     setImporting(true);
     const toImport = rows.filter((r) => r.include);
     const packages = await db.packages.toArray();
+    const settings = await db.settings.get(1);
+    const prefix = settings?.memberCodePrefix || 'M';
+    let nextNum = await maxMemberCodeNumber();
     let count = 0;
     await db.transaction('rw', [db.members, db.memberships, db.activities], async () => {
       for (const r of toImport) {
+        const memberCode = r.memberCode || formatMemberCode(prefix, ++nextNum);
         const memberId = await db.members.add({
+          memberCode,
           fullName: r.fullName,
           phone: r.phone,
           email: r.email,
@@ -200,6 +233,20 @@ export default function ImportMembers() {
     setRows((rs) => rs!.map((r, i) => (i === idx ? { ...r, include: !r.include } : r)));
   }
 
+  async function downloadTemplate() {
+    const XLSX = await import('xlsx');
+    const sample = [
+      ['M0001', 'Rahul Sharma', 'Male', '9876543210', 'rahul@example.com', '1990-05-15', 'MG Road, Pune', '3 Months', '2026-01-01', '2026-04-01', 'Active', 2700],
+      ['M0002', 'Priya Patel', 'Female', '9123456780', '', '1995-11-02', '', '1 Month', '2026-02-01', '2026-03-01', 'Active', 1000],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, ...sample]);
+    ws['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(12, h.length + 2) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Members');
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'gymapp-import-template.xlsx');
+  }
+
   return (
     <div className="page">
       <PageHeader title="Import Members" back />
@@ -207,10 +254,15 @@ export default function ImportMembers() {
       {!rows && (
         <div className="card form">
           <p className="muted">
-            Upload the Excel export from Go Gym (or any .xlsx/.csv with <strong>Name</strong> and{' '}
-            <strong>Phone</strong> columns). Optional columns: email, gender, DOB, address, package/plan,
-            start date, expiry date, amount.
+            Use the standard template for a clean import — columns:{' '}
+            <strong>Member ID, Full Name, Gender, Mobile, Email, DOB, Address, Package, Start Date, Expiry
+            Date, Status, Amount Paid</strong>. Only Full Name and Mobile are required; Member IDs are
+            auto-generated when the column is blank. A Go Gym export (or any .xlsx/.csv with Name & Phone
+            columns) also works.
           </p>
+          <button className="btn btn-block" onClick={downloadTemplate}>
+            ⬇️ Download Standard Template
+          </button>
           <label className="btn btn-primary btn-block">
             📥 Choose Excel / CSV file
             <input type="file" accept=".xlsx,.xls,.csv" hidden onChange={(e) => onFile(e.target.files?.[0])} />
@@ -249,7 +301,10 @@ export default function ImportMembers() {
               <label key={i} className={'card import-row' + (r.errors.length || r.duplicateOf ? ' import-problem' : '')}>
                 <input type="checkbox" checked={r.include} onChange={() => toggleRow(i)} />
                 <div className="import-row-body">
-                  <strong>{r.fullName || '(no name)'}</strong>
+                  <strong>
+                    {r.memberCode ? `${r.memberCode} · ` : ''}
+                    {r.fullName || '(no name)'}
+                  </strong>
                   <span className="muted block">
                     {r.phone || '(no phone)'}
                     {r.packageName ? ` · ${r.packageName}` : ''}

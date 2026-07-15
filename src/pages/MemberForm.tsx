@@ -5,7 +5,7 @@ import { db } from '../db';
 import { createMember, logActivity } from '../data';
 import type { Gender, PaymentMode } from '../types';
 import { PAYMENT_MODES } from '../types';
-import { fileToDataUrl, money, normPhone, todayISO } from '../utils';
+import { addDays, addMonths, fileToDataUrl, formatDate, money, normPhone, todayISO } from '../utils';
 import Avatar from '../components/Avatar';
 import ConditionsPicker from '../components/ConditionsPicker';
 import PageHeader from '../components/PageHeader';
@@ -33,6 +33,7 @@ export default function MemberForm() {
   const [touchedFinal, setTouchedFinal] = useState(false);
   const [program, setProgram] = useState('');
   const [joiningDate, setJoiningDate] = useState(todayISO());
+  const [extraDays, setExtraDays] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
   const [touchedAmount, setTouchedAmount] = useState(false);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
@@ -60,6 +61,9 @@ export default function MemberForm() {
   const effectiveFinal = touchedFinal ? Number(finalAmount) || 0 : pkg?.price ?? 0;
   const autoDiscount = pkg ? Math.max(0, pkg.price - effectiveFinal) : 0;
   const effectiveAmount = touchedAmount ? amountPaid : pkg ? String(effectiveFinal) : '';
+  const previewExpiry = pkg
+    ? addDays(addMonths(joiningDate || todayISO(), pkg.durationMonths), Number(extraDays) || 0)
+    : null;
 
   async function onPhoto(file: File | undefined) {
     if (!file) return;
@@ -108,6 +112,7 @@ export default function MemberForm() {
         finalAmount: packageId ? effectiveFinal : undefined,
         specialProgram: program.trim() || undefined,
         joiningDate,
+        extraDays: Number(extraDays) || 0,
         amountPaid: Number(effectiveAmount) || 0,
         paymentMode,
       });
@@ -195,6 +200,19 @@ export default function MemberForm() {
               </label>
             </div>
             {pkg && (
+              <label className="field">
+                <span>Extra Days (optional)</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  placeholder="e.g. 5 complimentary days"
+                  value={extraDays}
+                  onChange={(e) => setExtraDays(e.target.value)}
+                />
+              </label>
+            )}
+            {pkg && (
               <>
                 <ProgramSelect value={program} onChange={setProgram} />
                 <div className="field-row">
@@ -236,6 +254,13 @@ export default function MemberForm() {
                 <div className="hint">
                   Package price {money(pkg.price)} − final amount {money(effectiveFinal)} ={' '}
                   <strong>discount {money(autoDiscount)}</strong>
+                  {previewExpiry && (
+                    <>
+                      <br />
+                      Membership expires <strong>{formatDate(previewExpiry)}</strong>
+                      {Number(extraDays) > 0 ? ` (incl. ${Number(extraDays)} extra days)` : ''}
+                    </>
+                  )}
                 </div>
               </>
             )}

@@ -9,6 +9,23 @@ import type {
 } from './types';
 import { addDays, addMonths, daysUntil, nowISO, statusOf, todayISO } from './utils';
 
+/** Trailing number in a member code, e.g. "M0007" -> 7. */
+export function memberCodeNumber(code: string | undefined): number {
+  if (!code) return 0;
+  const m = code.match(/(\d+)\s*$/);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Highest member-code number currently in use (across all members). */
+export async function maxMemberCodeNumber(): Promise<number> {
+  const all = await db.members.toArray();
+  return all.reduce((mx, m) => Math.max(mx, memberCodeNumber(m.memberCode)), 0);
+}
+
+export function formatMemberCode(prefix: string, n: number): string {
+  return `${prefix}${String(n).padStart(4, '0')}`;
+}
+
 export async function logActivity(type: 'member' | 'renewal' | 'payment' | 'import' | 'other', message: string) {
   await db.activities.add({ type, message, at: nowISO() });
   // keep activity log bounded
@@ -79,15 +96,24 @@ export interface NewMemberInput {
   finalAmount?: number; // final membership amount; discount derived from package price
   specialProgram?: string;
   joiningDate?: string;
+  extraDays?: number; // complimentary days added on top of the package duration
   amountPaid?: number;
   paymentMode?: PaymentMode;
   recordedBy?: string;
 }
 
 export async function createMember(input: NewMemberInput): Promise<number> {
-  return db.transaction('rw', [db.members, db.memberships, db.payments, db.packages, db.activities], async () => {
+  return db.transaction(
+    'rw',
+    [db.members, db.memberships, db.payments, db.packages, db.activities, db.settings],
+    async () => {
+    const settings = await db.settings.get(1);
+    const prefix = settings?.memberCodePrefix || 'M';
+    const memberCode =
+      input.member.memberCode || formatMemberCode(prefix, (await maxMemberCodeNumber()) + 1);
     const memberId = await db.members.add({
       ...input.member,
+      memberCode,
       createdAt: nowISO(),
       deletedAt: null,
     });
@@ -97,13 +123,15 @@ export async function createMember(input: NewMemberInput): Promise<number> {
         const start = input.joiningDate || todayISO();
         const finalPrice = input.finalAmount ?? pkg.price;
         const discount = Math.max(0, pkg.price - finalPrice);
+        const baseEnd = addMonths(start, pkg.durationMonths);
+        const endDate = input.extraDays ? addDays(baseEnd, input.extraDays) : baseEnd;
         const membershipId = await db.memberships.add({
           memberId,
           packageId: pkg.id!,
           packageName: pkg.name,
           durationMonths: pkg.durationMonths,
           startDate: start,
-          endDate: addMonths(start, pkg.durationMonths),
+          endDate,
           discount,
           finalPrice,
           specialProgram: input.specialProgram,

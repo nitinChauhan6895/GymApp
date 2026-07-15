@@ -36,6 +36,7 @@ export const SPECIAL_PROGRAMS = [
 
 export interface Member {
   id?: number;
+  memberCode?: string; // human-friendly member ID, e.g. M0001
   fullName: string;
   phone: string;
   email?: string;
@@ -120,6 +121,7 @@ export interface AppSettings {
   logo?: string; // data URL
   notificationsEnabled: boolean;
   lastMorningSummary?: string; // ISO date of last browser notification
+  memberCodePrefix?: string; // prefix for auto-generated member IDs, default "M"
 }
 
 /** Member joined with derived membership info for lists. */

@@ -646,6 +646,13 @@ body {
   font-size: 1.15rem;
 }
 
+.member-code {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
 .profile-contact {
   display: flex;
   gap: 8px;
