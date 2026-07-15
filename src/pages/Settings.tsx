@@ -11,6 +11,7 @@ export default function Settings() {
   const [gymName, setGymName] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
+  const [codePrefix, setCodePrefix] = useState('M');
   const [savedFlash, setSavedFlash] = useState(false);
   const [empName, setEmpName] = useState('');
   const [empRole, setEmpRole] = useState<'Owner' | 'Employee'>('Employee');
@@ -23,11 +24,14 @@ export default function Settings() {
       setGymName(settings.gymName);
       setAddress(settings.address);
       setPhone(settings.phone);
+      setCodePrefix(settings.memberCodePrefix || 'M');
     }
   }, [settings]);
 
   async function saveGym() {
-    await db.settings.update(1, { gymName, address, phone });
+    const prefix = codePrefix.trim().toUpperCase() || 'M';
+    await db.settings.update(1, { gymName, address, phone, memberCodePrefix: prefix });
+    setCodePrefix(prefix);
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 1500);
   }
@@ -142,6 +146,16 @@ export default function Settings() {
         <label className="field">
           <span>Phone</span>
           <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Member ID Prefix</span>
+          <input
+            value={codePrefix}
+            maxLength={6}
+            onChange={(e) => setCodePrefix(e.target.value)}
+            placeholder="M"
+          />
+          <span className="muted tiny">New members get IDs like {(codePrefix.trim().toUpperCase() || 'M') + '0001'}. Existing IDs are unchanged.</span>
         </label>
         <button className="btn btn-primary" onClick={saveGym}>
           {savedFlash ? '✓ Saved' : 'Save Details'}

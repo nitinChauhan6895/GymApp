@@ -32,6 +32,25 @@ export class GymDB extends Dexie {
       activities: '++id, at',
       settings: 'id',
     });
+    // v2: human-friendly member IDs. Backfill codes for existing members.
+    this.version(2)
+      .stores({ members: '++id, fullName, phone, deletedAt, memberCode' })
+      .upgrade(async (tx) => {
+        const settings = await tx.table('settings').get(1);
+        const prefix = settings?.memberCodePrefix || 'M';
+        if (settings && !settings.memberCodePrefix) {
+          await tx.table('settings').update(1, { memberCodePrefix: prefix });
+        }
+        const members: Member[] = await tx.table('members').toArray();
+        members.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+        let n = 0;
+        for (const m of members) {
+          if (!m.memberCode) {
+            n++;
+            await tx.table('members').update(m.id!, { memberCode: prefix + String(n).padStart(4, '0') });
+          }
+        }
+      });
   }
 }
 
@@ -57,6 +76,7 @@ export async function seedDatabase() {
       address: '',
       phone: '',
       notificationsEnabled: false,
+      memberCodePrefix: 'M',
     });
   }
 }

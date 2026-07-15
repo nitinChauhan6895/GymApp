@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import type { Campaign } from '../types';
-import { downloadBlob, formatDateTime, nowISO } from '../utils';
+import { downloadBlob, fileToDataUrl, formatDateTime, nowISO } from '../utils';
 import PageHeader from '../components/PageHeader';
 
 const TEMPLATES = [
@@ -22,9 +22,18 @@ interface PosterData {
   gymName: string;
   phone: string;
   logo?: string;
+  bgImage?: string;
 }
 
-function drawPoster(canvas: HTMLCanvasElement, data: PosterData) {
+/** Draw an image covering the whole canvas (object-fit: cover). */
+function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, W: number, H: number) {
+  const scale = Math.max(W / img.width, H / img.height);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+}
+
+function drawPoster(canvas: HTMLCanvasElement, data: PosterData, bgImg?: HTMLImageElement | null) {
   const W = 1080;
   const H = 1350;
   canvas.width = W;
@@ -38,18 +47,29 @@ function drawPoster(canvas: HTMLCanvasElement, data: PosterData) {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // decorative dumbbell strokes
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 40;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(-50, H - 180);
-  ctx.lineTo(W * 0.45, H - 320);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(W * 0.6, 140);
-  ctx.lineTo(W + 60, 260);
-  ctx.stroke();
+  // uploaded background photo (with dark overlay so text stays legible)
+  if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+    drawCover(ctx, bgImg, W, H);
+    const shade = ctx.createLinearGradient(0, 0, 0, H);
+    shade.addColorStop(0, 'rgba(2,6,23,0.55)');
+    shade.addColorStop(0.5, 'rgba(2,6,23,0.35)');
+    shade.addColorStop(1, 'rgba(2,6,23,0.7)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    // decorative dumbbell strokes (only on the plain gradient)
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 40;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-50, H - 180);
+    ctx.lineTo(W * 0.45, H - 320);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(W * 0.6, 140);
+    ctx.lineTo(W + 60, 260);
+    ctx.stroke();
+  }
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
@@ -120,6 +140,9 @@ export default function Campaigns() {
   const [dates, setDates] = useState('Valid till 31 Jan');
   const [phone, setPhone] = useState('');
   const [gymName, setGymName] = useState('');
+  const [bgImage, setBgImage] = useState<string | undefined>();
+  const bgImgRef = useRef<HTMLImageElement | null>(null);
+  const [, setBgReady] = useState(0);
 
   useEffect(() => {
     if (settings) {
@@ -128,11 +151,31 @@ export default function Campaigns() {
     }
   }, [settings]);
 
-  const data: PosterData = { template, title, offer, price, dates, gymName, phone, logo: settings?.logo };
+  useEffect(() => {
+    if (!bgImage) {
+      bgImgRef.current = null;
+      setBgReady((n) => n + 1);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      bgImgRef.current = img;
+      setBgReady((n) => n + 1);
+    };
+    img.src = bgImage;
+  }, [bgImage]);
+
+  const data: PosterData = { template, title, offer, price, dates, gymName, phone, logo: settings?.logo, bgImage };
 
   useEffect(() => {
-    if (canvasRef.current) drawPoster(canvasRef.current, data);
+    if (canvasRef.current) drawPoster(canvasRef.current, data, bgImgRef.current);
   });
+
+  async function onBgImage(file: File | undefined) {
+    if (!file) return;
+    // downscale to keep the poster crisp but memory reasonable
+    setBgImage(await fileToDataUrl(file, 1200));
+  }
 
   async function exportImage(saveHistory = true) {
     const canvas = canvasRef.current;
@@ -171,6 +214,18 @@ export default function Campaigns() {
 
       <div className="poster-preview">
         <canvas ref={canvasRef} className="poster-canvas" />
+      </div>
+
+      <div className="btn-row">
+        <label className="btn btn-sm">
+          {bgImage ? '🖼️ Change Background' : '🖼️ Upload Background Image'}
+          <input type="file" accept="image/*" hidden onChange={(e) => onBgImage(e.target.files?.[0])} />
+        </label>
+        {bgImage && (
+          <button className="btn btn-sm" onClick={() => setBgImage(undefined)}>
+            ✕ Remove
+          </button>
+        )}
       </div>
 
       <div className="form">

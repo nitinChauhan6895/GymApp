@@ -63,6 +63,7 @@ export default function Reports() {
     const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const memberRows = data.views.map((v) => ({
+      'Member ID': v.member.memberCode || '',
       Name: v.member.fullName,
       Phone: v.member.phone,
       Email: v.member.email || '',

@@ -15,7 +15,9 @@ export default function MemberCard({ view }: { view: MemberView }) {
           <StatusBadge status={status} />
         </div>
         <div className="member-card-sub">
-          <span>📞 {member.phone}</span>
+          <span>
+            {member.memberCode ? `${member.memberCode} · ` : ''}📞 {member.phone}
+          </span>
           {membership && (
             <span>
               {membership.packageName}
