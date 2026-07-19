@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
 import { logActivity } from '../data';
-import { addMonths, downloadBlob, fmtISO, formatDate, normPhone, nowISO, todayISO } from '../utils';
+import { addMonths, downloadBlob, fmtISO, formatDate, money, normPhone, nowISO, todayISO } from '../utils';
 import { formatMemberCode, maxMemberCodeNumber } from '../data';
+import { PAYMENT_MODES, type PaymentMode } from '../types';
 import PageHeader from '../components/PageHeader';
 
-/** Column order of the standard import template. */
+/** Column order of the standard (exhaustive) import template. */
 const TEMPLATE_HEADERS = [
   'Member ID',
   'Full Name',
@@ -15,11 +16,20 @@ const TEMPLATE_HEADERS = [
   'Email',
   'DOB',
   'Address',
+  'Emergency Contact',
+  'Health Conditions',
   'Package',
+  'Special Program',
   'Start Date',
   'Expiry Date',
   'Status',
+  'Final Amount',
+  'Discount',
   'Amount Paid',
+  'Payment Mode',
+  'Payment Date',
+  'Reference',
+  'Notes',
 ];
 
 interface ImportRow {
@@ -30,13 +40,48 @@ interface ImportRow {
   gender?: string;
   dob?: string;
   address?: string;
+  emergencyContact?: string;
+  conditions?: string[];
   packageName?: string;
+  program?: string;
   startDate?: string;
   endDate?: string;
-  amount?: number;
+  finalAmount?: number;
+  discount?: number;
+  amount?: number; // amount paid
+  paymentMode?: PaymentMode;
+  paymentDate?: string;
+  reference?: string;
+  notes?: string;
   errors: string[];
   duplicateOf?: string; // reason for duplicate
   include: boolean;
+}
+
+/** Match a value to a known payment mode (case-insensitive), else undefined. */
+function toPaymentMode(value: unknown): PaymentMode | undefined {
+  const s = String(value ?? '').trim().toLowerCase();
+  if (!s) return undefined;
+  const hit = PAYMENT_MODES.find((m) => m.toLowerCase() === s);
+  if (hit) return hit;
+  if (s.includes('upi')) return 'UPI';
+  if (s.includes('card')) return 'Card';
+  if (s.includes('bank') || s.includes('transfer') || s.includes('neft') || s.includes('imps')) return 'Bank Transfer';
+  if (s.includes('cash')) return 'Cash';
+  return undefined;
+}
+
+function toList(value: unknown): string[] | undefined {
+  const s = String(value ?? '').trim();
+  if (!s) return undefined;
+  const list = s.split(/[,;|]/).map((x) => x.trim()).filter(Boolean);
+  return list.length ? list : undefined;
+}
+
+function toNum(value: unknown): number | undefined {
+  if (value == null || value === '') return undefined;
+  const n = Number(String(value).replace(/[^0-9.-]/g, ''));
+  return isNaN(n) ? undefined : n;
 }
 
 /** Find the first matching header (case/space-insensitive contains). */
@@ -104,20 +149,31 @@ export default function ImportMembers() {
       const col = {
         code: findIdCol(headers),
         name: findCol(headers, ['fullname', 'membername', 'name']),
-        phone: findCol(headers, ['phone', 'mobile', 'contact']),
+        phone: findCol(headers, ['mobile', 'phone', 'contactno', 'contactnumber', 'contact']),
         email: findCol(headers, ['email']),
         gender: findCol(headers, ['gender', 'sex']),
         dob: findCol(headers, ['dob', 'dateofbirth', 'birth']),
         address: findCol(headers, ['address']),
+        emergency: findCol(headers, ['emergencycontact', 'emergency', 'nextofkin']),
+        conditions: findCol(headers, ['healthcondition', 'healthconditions', 'conditions', 'condition', 'ailment', 'medical']),
         pkg: findCol(headers, ['package', 'plan', 'membership']),
+        program: findCol(headers, ['specialprogram', 'program', 'programme']),
         start: findCol(headers, ['startdate', 'joindate', 'joiningdate', 'start', 'joined']),
-        end: findCol(headers, ['enddate', 'expirydate', 'expiry', 'expire', 'end', 'validtill', 'validupto']),
-        amount: findCol(headers, ['amountpaid', 'amount', 'paid', 'fee', 'price']),
+        end: findCol(headers, ['enddate', 'expirydate', 'expiry', 'expire', 'validtill', 'validupto', 'end']),
+        finalAmount: findCol(headers, ['finalamount', 'finalprice', 'netamount', 'netprice', 'membershipamount', 'packageprice', 'totalamount']),
+        discount: findCol(headers, ['discount', 'concession', 'rebate']),
+        amount: findCol(headers, ['amountpaid', 'paidamount', 'amountreceived', 'paid', 'amount', 'fee', 'price']),
+        mode: findCol(headers, ['paymentmode', 'paymentmethod', 'paymenttype', 'modeofpayment', 'mode']),
+        payDate: findCol(headers, ['paymentdate', 'paidon', 'paydate', 'receiptdate', 'transactiondate']),
+        reference: findCol(headers, ['reference', 'refno', 'receiptno', 'txnid', 'transactionid', 'referencenumber']),
+        notes: findCol(headers, ['notes', 'remarks', 'remark', 'comment', 'comments']),
       };
       if (col.name === -1 || col.phone === -1) {
         setError(`Could not find Name and Phone columns. Found headers: ${headers.filter(Boolean).join(', ')}`);
         return;
       }
+      // if a single "Amount" column doubles as final amount, don't read it twice
+      const finalAmountCol = col.finalAmount !== -1 && col.finalAmount !== col.amount ? col.finalAmount : -1;
 
       const existing = await db.members.filter((m) => !m.deletedAt).toArray();
       const existingPhones = new Map(existing.map((m) => [normPhone(m.phone), m.fullName]));
@@ -138,18 +194,28 @@ export default function ImportMembers() {
           else if (seenInFile.has(np)) duplicateOf = 'Duplicate row in file';
           else seenInFile.add(np);
         }
+        const cell = (i: number) => (i !== -1 ? String(r[i] ?? '').trim() || undefined : undefined);
         const row: ImportRow = {
           memberCode: col.code !== -1 ? String(r[col.code] ?? '').trim().replace(/\.0$/, '') || undefined : undefined,
           fullName,
           phone,
-          email: col.email !== -1 ? String(r[col.email] ?? '').trim() || undefined : undefined,
-          gender: col.gender !== -1 ? String(r[col.gender] ?? '').trim() || undefined : undefined,
+          email: cell(col.email),
+          gender: cell(col.gender),
           dob: col.dob !== -1 ? toISODate(r[col.dob]) : undefined,
-          address: col.address !== -1 ? String(r[col.address] ?? '').trim() || undefined : undefined,
-          packageName: col.pkg !== -1 ? String(r[col.pkg] ?? '').trim() || undefined : undefined,
+          address: cell(col.address),
+          emergencyContact: col.emergency !== -1 ? String(r[col.emergency] ?? '').trim().replace(/\.0$/, '') || undefined : undefined,
+          conditions: col.conditions !== -1 ? toList(r[col.conditions]) : undefined,
+          packageName: cell(col.pkg),
+          program: cell(col.program),
           startDate: col.start !== -1 ? toISODate(r[col.start]) : undefined,
           endDate: col.end !== -1 ? toISODate(r[col.end]) : undefined,
-          amount: col.amount !== -1 ? Number(r[col.amount]) || undefined : undefined,
+          finalAmount: finalAmountCol !== -1 ? toNum(r[finalAmountCol]) : undefined,
+          discount: col.discount !== -1 ? toNum(r[col.discount]) : undefined,
+          amount: col.amount !== -1 ? toNum(r[col.amount]) : undefined,
+          paymentMode: col.mode !== -1 ? toPaymentMode(r[col.mode]) : undefined,
+          paymentDate: col.payDate !== -1 ? toISODate(r[col.payDate]) : undefined,
+          reference: cell(col.reference),
+          notes: cell(col.notes),
           errors,
           duplicateOf,
           include: errors.length === 0 && !duplicateOf,
@@ -181,9 +247,11 @@ export default function ImportMembers() {
     const packages = await db.packages.toArray();
     const settings = await db.settings.get(1);
     const prefix = settings?.memberCodePrefix || 'M';
+    const upload = todayISO();
     let nextNum = await maxMemberCodeNumber();
     let count = 0;
-    await db.transaction('rw', [db.members, db.memberships, db.activities], async () => {
+    let paymentsAdded = 0;
+    await db.transaction('rw', [db.members, db.memberships, db.payments, db.activities], async () => {
       for (const r of toImport) {
         const memberCode = r.memberCode || formatMemberCode(prefix, ++nextNum);
         const memberId = await db.members.add({
@@ -194,36 +262,64 @@ export default function ImportMembers() {
           gender: (r.gender as never) || '',
           dob: r.dob,
           address: r.address,
-          notes: 'Imported from ' + fileName,
+          emergencyContact: r.emergencyContact,
+          conditions: r.conditions,
+          notes: r.notes || 'Imported from ' + fileName,
           createdAt: nowISO(),
           deletedAt: null,
         });
-        // create a membership when we know the expiry (or package + start)
+
+        // membership: create when we know the expiry (or can derive it from package + start)
         const pkgMatch = r.packageName
           ? packages.find((p) => p.name.toLowerCase() === r.packageName!.toLowerCase())
           : undefined;
         let start = r.startDate;
         let end = r.endDate;
         if (!end && start && pkgMatch) end = addMonths(start, pkgMatch.durationMonths);
+
+        // pricing: prefer an explicit Final Amount; else package price minus discount; else amount paid
+        const discount = r.discount ?? (r.finalAmount != null && pkgMatch ? Math.max(0, pkgMatch.price - r.finalAmount) : 0);
+        const finalPrice =
+          r.finalAmount ?? (pkgMatch ? Math.max(0, pkgMatch.price - discount) : r.amount ?? 0);
+
+        let membershipId: number | null = null;
         if (end) {
-          if (!start) start = end <= todayISO() ? end : todayISO();
-          await db.memberships.add({
+          if (!start) start = end <= upload ? end : upload;
+          membershipId = await db.memberships.add({
             memberId,
             packageId: pkgMatch?.id ?? 0,
             packageName: pkgMatch?.name || r.packageName || 'Imported plan',
             durationMonths: pkgMatch?.durationMonths ?? 0,
             startDate: start,
             endDate: end,
-            discount: 0,
-            finalPrice: r.amount ?? pkgMatch?.price ?? 0,
+            discount,
+            finalPrice,
+            specialProgram: r.program,
             renewedFrom: null,
             createdAt: nowISO(),
           });
         }
+
+        // payment: record the amount paid so it lands in payment history.
+        // Payment date = value from file, else the upload date.
+        if (r.amount != null && r.amount > 0) {
+          await db.payments.add({
+            memberId,
+            membershipId,
+            amount: r.amount,
+            mode: r.paymentMode || 'Cash',
+            discount,
+            reference: r.reference,
+            remarks: 'Imported',
+            paymentDate: r.paymentDate || upload,
+            createdAt: nowISO(),
+          });
+          paymentsAdded++;
+        }
         count++;
       }
     });
-    await logActivity('import', `Imported ${count} members from ${fileName}`);
+    await logActivity('import', `Imported ${count} members (${paymentsAdded} payments) from ${fileName}`);
     setDone(count);
     setRows(null);
     setImporting(false);
@@ -235,9 +331,12 @@ export default function ImportMembers() {
 
   async function downloadTemplate() {
     const XLSX = await import('xlsx');
+    // columns, in order: Member ID, Full Name, Gender, Mobile, Email, DOB, Address,
+    // Emergency Contact, Health Conditions, Package, Special Program, Start Date,
+    // Expiry Date, Status, Final Amount, Discount, Amount Paid, Payment Mode, Payment Date, Reference, Notes
     const sample = [
-      ['M0001', 'Rahul Sharma', 'Male', '9876543210', 'rahul@example.com', '1990-05-15', 'MG Road, Pune', '3 Months', '2026-01-01', '2026-04-01', 'Active', 2700],
-      ['M0002', 'Priya Patel', 'Female', '9123456780', '', '1995-11-02', '', '1 Month', '2026-02-01', '2026-03-01', 'Active', 1000],
+      ['M0001', 'Rahul Sharma', 'Male', '9876543210', 'rahul@example.com', '1990-05-15', 'MG Road, Pune', '9876500000', 'Diabetes', '3 Months', 'Weight Loss', '2026-01-01', '2026-04-01', 'Active', 2700, 300, 2700, 'UPI', '2026-01-01', 'UPI-8842', 'Prefers morning batch'],
+      ['M0002', 'Priya Patel', 'Female', '9123456780', '', '1995-11-02', '', '', 'Heart Disease, High Blood Pressure', '1 Month', 'Cardiac Fitness', '2026-02-01', '2026-03-01', 'Active', 1000, 0, 500, 'Cash', '2026-02-01', '', 'Balance 500 pending'],
     ];
     const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, ...sample]);
     ws['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(12, h.length + 2) }));
@@ -254,11 +353,13 @@ export default function ImportMembers() {
       {!rows && (
         <div className="card form">
           <p className="muted">
-            Use the standard template for a clean import — columns:{' '}
-            <strong>Member ID, Full Name, Gender, Mobile, Email, DOB, Address, Package, Start Date, Expiry
-            Date, Status, Amount Paid</strong>. Only Full Name and Mobile are required; Member IDs are
-            auto-generated when the column is blank. A Go Gym export (or any .xlsx/.csv with Name & Phone
-            columns) also works.
+            Download the standard template for a clean import. It covers member details (ID, name,
+            gender, mobile, email, DOB, address, emergency contact, health conditions), membership
+            (package, special program, start &amp; expiry dates, final amount, discount) and payment
+            (amount paid, mode, date, reference, notes). Only <strong>Full Name</strong> and{' '}
+            <strong>Mobile</strong> are required — the import reads whatever other columns are present.
+            Member IDs auto-generate when blank, and a missing payment date defaults to today. A Go Gym
+            export (or any .xlsx/.csv with Name &amp; Phone columns) also works.
           </p>
           <button className="btn btn-block" onClick={downloadTemplate}>
             ⬇️ Download Standard Template
@@ -309,6 +410,7 @@ export default function ImportMembers() {
                     {r.phone || '(no phone)'}
                     {r.packageName ? ` · ${r.packageName}` : ''}
                     {r.endDate ? ` · exp ${formatDate(r.endDate)}` : ''}
+                    {r.amount != null ? ` · paid ${money(r.amount)}` : ''}
                   </span>
                   {r.errors.map((e) => (
                     <span key={e} className="error tiny block">
